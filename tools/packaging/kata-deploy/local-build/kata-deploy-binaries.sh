@@ -43,6 +43,7 @@ readonly se_image_builder="${repo_root_dir}/tools/packaging/guest-image/build_se
 ARCH=${ARCH:-$(uname -m)}
 BUSYBOX_CONF_FILE="${BUSYBOX_CONF_FILE:-}"
 MEASURED_ROOTFS=${MEASURED_ROOTFS:-no}
+PULL_TYPE=${PULL_TYPE:-guest-pull}
 USE_CACHE="${USE_CACHE:-"yes"}"
 ARTEFACT_REGISTRY="${ARTEFACT_REGISTRY:-ghcr.io}"
 ARTEFACT_REPOSITORY="${ARTEFACT_REPOSITORY:-kata-containers}"
@@ -50,9 +51,6 @@ ARTEFACT_REGISTRY_USERNAME="${ARTEFACT_REGISTRY_USERNAME:-}"
 ARTEFACT_REGISTRY_PASSWORD="${ARTEFACT_REGISTRY_PASSWORD:-}"
 GUEST_HOOKS_TARBALL_NAME="${GUEST_HOOKS_TARBALL_NAME:-}"
 EXTRA_PKGS="${EXTRA_PKGS:-}"
-REPO_URL="${REPO_URL:-}"
-REPO_URL_X86_64="${REPO_URL_X86_64:-}"
-REPO_COMPONENTS="${REPO_COMPONENTS:-}"
 AGENT_POLICY="${AGENT_POLICY:-yes}"
 TARGET_BRANCH="${TARGET_BRANCH:-main}"
 PUSH_TO_REGISTRY="${PUSH_TO_REGISTRY:-}"
@@ -120,7 +118,7 @@ options:
 	nydus
 	pause-image
 	ovmf
-	ovmf-sev
+	ovmf-snp
 	qemu
 	qemu-snp-experimental
 	qemu-tdx-experimental
@@ -407,18 +405,6 @@ install_image() {
 		export EXTRA_PKGS
 	fi
 
-	if [[ -n "${REPO_URL}" ]]; then
-		export REPO_URL
-	fi
-
-	if [[ -n "${REPO_URL_X86_64}" ]]; then
-		export REPO_URL_X86_64
-	fi
-
-	if [[ -n "${REPO_COMPONENTS}" ]]; then
-		export REPO_COMPONENTS
-	fi
-
 	"${rootfs_builder}" --osname="${os_name}" --osversion="${os_version}" --imagetype=image --prefix="${prefix}" --destdir="${destdir}" --image_initrd_suffix="${variant}"
 }
 
@@ -429,12 +415,12 @@ install_image_confidential() {
 	else
 		export MEASURED_ROOTFS=yes
 	fi
+	export PULL_TYPE=default
 	install_image "confidential"
 }
 
 #Install cbl-mariner guest image
 install_image_mariner() {
-	export IMAGE_SIZE_ALIGNMENT_MB=2
 	install_image "mariner"
 }
 
@@ -509,24 +495,13 @@ install_initrd() {
 		export EXTRA_PKGS
 	fi
 
-	if [[ -n "${REPO_URL}" ]]; then
-		export REPO_URL
-	fi
-
-	if [[ -n "${REPO_URL_X86_64}" ]]; then
-		export REPO_URL_X86_64
-	fi
-
-	if [[ -n "${REPO_COMPONENTS}" ]]; then
-		export REPO_COMPONENTS
-	fi
-
 	"${rootfs_builder}" --osname="${os_name}" --osversion="${os_version}" --imagetype=initrd --prefix="${prefix}" --destdir="${destdir}" --image_initrd_suffix="${variant}"
 }
 
 #Install guest initrd for confidential guests
 install_initrd_confidential() {
 	export MEASURED_ROOTFS=no
+	export PULL_TYPE=default
 	install_initrd "confidential"
 }
 
@@ -931,13 +906,9 @@ install_shimv2() {
 install_ovmf() {
 	ovmf_type="${1:-x86_64}"
 	tarball_name="${2:-edk2-x86_64.tar.gz}"
-	if [ "${ARCH}" == "aarch64" ]; then
-		ovmf_type="arm64"
-		tarball_name="edk2-arm64.tar.gz"
-	fi
 
 	local component_name="ovmf"
-	[ "${ovmf_type}" == "sev" ] && component_name="ovmf-sev"
+	[ "${ovmf_type}" == "snp" ] && component_name="ovmf-snp"
 
 	latest_artefact="$(get_from_kata_deps ".externals.ovmf.${ovmf_type}.version")"
 	latest_builder_image="$(get_ovmf_image_name)"
@@ -954,9 +925,9 @@ install_ovmf() {
 	tar xvf "${builddir}/${tarball_name}" -C "${destdir}"
 }
 
-# Install OVMF SEV
-install_ovmf_sev() {
-	install_ovmf "sev" "edk2-sev.tar.gz"
+# Install OVMF SNP
+install_ovmf_snp() {
+	install_ovmf "snp" "edk2-sev.tar.gz"
 }
 
 install_busybox() {
@@ -994,7 +965,7 @@ install_agent() {
 	export GPERF_URL="$(get_from_kata_deps ".externals.gperf.url")"
 
 	info "build static agent"
-	DESTDIR="${destdir}" AGENT_POLICY="${AGENT_POLICY}" "${agent_builder}"
+	DESTDIR="${destdir}" AGENT_POLICY="${AGENT_POLICY}" PULL_TYPE=${PULL_TYPE} "${agent_builder}"
 }
 
 install_coco_guest_components() {
@@ -1192,7 +1163,7 @@ handle_build() {
 		install_log_parser_rs
 		install_nydus
 		install_ovmf
-		install_ovmf_sev
+		install_ovmf_snp
 		install_qemu
 		install_qemu_snp_experimental
 		install_qemu_tdx_experimental
@@ -1243,7 +1214,7 @@ handle_build() {
 
 	ovmf) install_ovmf ;;
 
-	ovmf-sev) install_ovmf_sev ;;
+	ovmf-snp) install_ovmf_snp ;;
 
 	pause-image) install_pause_image ;;
 
